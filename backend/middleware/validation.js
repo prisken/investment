@@ -374,5 +374,36 @@ module.exports = {
   validateIndexCreation: [...indexValidations.createIndex, handleValidationErrors],
   validatePortfolioCreation: [...portfolioValidations.createPortfolio, handleValidationErrors],
   validateUserRegistration: [...authValidations.register, handleValidationErrors],
-  validateUserLogin: [...authValidations.login, handleValidationErrors]
+  validateUserLogin: [...authValidations.login, handleValidationErrors],
+  
+  // Individual validation functions
+  validateStockSymbol: (req, res, next) => {
+    const { symbol } = req.params;
+    
+    if (!symbol || typeof symbol !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Stock symbol is required',
+          details: 'Please provide a valid stock symbol'
+        }
+      });
+    }
+    
+    // Validate symbol format (uppercase, alphanumeric + special chars)
+    const symbolRegex = /^[A-Z0-9^.-]+$/;
+    if (!symbolRegex.test(symbol.toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Invalid stock symbol format',
+          details: 'Symbol must contain only uppercase letters, numbers, and ^.- characters'
+        }
+      });
+    }
+    
+    // Convert to uppercase for consistency
+    req.params.symbol = symbol.toUpperCase();
+    next();
+  }
 };

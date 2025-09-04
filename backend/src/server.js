@@ -102,6 +102,7 @@ app.get('/health/db', async (req, res) => {
 
 // Routes
 app.use('/api/market', require('../routes/market'));
+app.use('/api/market/enhanced', require('../routes/market-enhanced'));
 app.use('/api/stocks', require('../routes/stocks'));
 app.use('/api/portfolio', require('../routes/portfolio'));
 app.use('/api/auth', require('../routes/auth'));
@@ -115,9 +116,21 @@ app.get('/', (req, res) => {
       health: '/health',
       database: '/health/db',
       market: '/api/market',
+      'market-enhanced': '/api/market/enhanced',
       stocks: '/api/stocks',
       portfolio: '/api/portfolio',
       auth: '/api/auth'
+    },
+    enhanced_features: {
+      'real-time-quotes': '/api/market/enhanced/quote/:symbol',
+      'batch-quotes': '/api/market/enhanced/batch-quotes',
+      'market-indices': '/api/market/enhanced/indices',
+      'market-overview': '/api/market/enhanced/overview',
+      'company-info': '/api/market/enhanced/company/:symbol',
+      'sector-performance': '/api/market/enhanced/sectors',
+      'service-status': '/api/market/enhanced/status',
+      'stock-search': '/api/market/enhanced/search?q=:query',
+      'popular-stocks': '/api/market/enhanced/popular/:market'
     },
     documentation: '/api/docs'
   });
