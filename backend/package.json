@@ -13,7 +13,13 @@
     "lint": "eslint src/ routes/",
     "lint:fix": "eslint src/ routes/ --fix"
   },
-  "keywords": ["investment", "stock-market", "api", "express", "nodejs"],
+  "keywords": [
+    "investment",
+    "stock-market",
+    "api",
+    "express",
+    "nodejs"
+  ],
   "author": "Investment App Team",
   "license": "MIT",
   "dependencies": {
@@ -23,10 +29,13 @@
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
+    "express-validator": "^7.2.1",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "pg": "^8.11.3",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.7",
     "winston": "^3.11.0"
   },
   "devDependencies": {
