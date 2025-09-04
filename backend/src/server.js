@@ -4,6 +4,8 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 require('dotenv').config();
 
 // Import custom middleware and utilities
@@ -12,6 +14,13 @@ const { requestLogger } = require('../utils/logger');
 const database = require('../config/database');
 
 const app = express();
+const server = createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 const PORT = process.env.PORT || 3000;
 
 // Enhanced rate limiting with different limits for different endpoints
@@ -100,6 +109,117 @@ app.get('/health/db', async (req, res) => {
   }
 });
 
+// WebSocket connection handling
+const connectedClients = new Set();
+const subscribedStocks = new Set();
+const subscribedMarketIndices = new Set();
+
+io.on('connection', (socket) => {
+  console.log(`🔌 Client connected: ${socket.id}`);
+  connectedClients.add(socket.id);
+
+  // Handle stock subscriptions
+  socket.on('subscribe-stocks', (symbols) => {
+    console.log(`📡 Client ${socket.id} subscribed to stocks:`, symbols);
+    symbols.forEach(symbol => subscribedStocks.add(symbol));
+    socket.join('stocks');
+  });
+
+  socket.on('unsubscribe-stocks', (symbols) => {
+    console.log(`📡 Client ${socket.id} unsubscribed from stocks:`, symbols);
+    symbols.forEach(symbol => subscribedStocks.delete(symbol));
+    socket.leave('stocks');
+  });
+
+  // Handle market indices subscriptions
+  socket.on('subscribe-market-indices', () => {
+    console.log(`📡 Client ${socket.id} subscribed to market indices`);
+    subscribedMarketIndices.add(socket.id);
+    socket.join('market-indices');
+  });
+
+  socket.on('unsubscribe-market-indices', () => {
+    console.log(`📡 Client ${socket.id} unsubscribed from market indices`);
+    subscribedMarketIndices.delete(socket.id);
+    socket.leave('market-indices');
+  });
+
+  // Handle data refresh requests
+  socket.on('request-refresh', async (type) => {
+    console.log(`🔄 Client ${socket.id} requested refresh for:`, type);
+    try {
+      if (type === 'stocks' || type === 'all') {
+        await broadcastStockUpdates();
+      }
+      if (type === 'market' || type === 'all') {
+        await broadcastMarketUpdates();
+      }
+    } catch (error) {
+      console.error('Error handling refresh request:', error);
+      socket.emit('error', 'Failed to refresh data');
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`🔌 Client disconnected: ${socket.id}`);
+    connectedClients.delete(socket.id);
+    subscribedMarketIndices.delete(socket.id);
+  });
+});
+
+// Real-time data broadcasting functions
+async function broadcastStockUpdates() {
+  if (subscribedStocks.size === 0) return;
+
+  try {
+    const symbols = Array.from(subscribedStocks);
+    const marketEnhanced = require('../routes/market-enhanced');
+    
+    // Get batch quotes for all subscribed stocks
+    const batchQuotes = await Promise.all(
+      symbols.map(async (symbol) => {
+        try {
+          const response = await fetch(`http://localhost:${PORT}/api/market/enhanced/quote/${symbol}`);
+          const data = await response.json();
+          return data.success ? data.data : null;
+        } catch (error) {
+          console.error(`Error fetching quote for ${symbol}:`, error);
+          return null;
+        }
+      })
+    );
+
+    const validQuotes = batchQuotes.filter(quote => quote !== null);
+    
+    if (validQuotes.length > 0) {
+      io.to('stocks').emit('batch-stock-update', validQuotes);
+      console.log(`📊 Broadcasted ${validQuotes.length} stock updates`);
+    }
+  } catch (error) {
+    console.error('Error broadcasting stock updates:', error);
+  }
+}
+
+async function broadcastMarketUpdates() {
+  if (subscribedMarketIndices.size === 0) return;
+
+  try {
+    const response = await fetch(`http://localhost:${PORT}/api/market/enhanced/overview`);
+    const data = await response.json();
+    
+    if (data.success) {
+      io.to('market-indices').emit('market-update', data.data);
+      console.log('📊 Broadcasted market indices update');
+    }
+  } catch (error) {
+    console.error('Error broadcasting market updates:', error);
+  }
+}
+
+// Set up periodic data broadcasting
+setInterval(broadcastStockUpdates, 30000); // Every 30 seconds
+setInterval(broadcastMarketUpdates, 60000); // Every 60 seconds
+
 // Routes
 app.use('/api/market', require('../routes/market'));
 app.use('/api/market/enhanced', require('../routes/market-enhanced'));
@@ -161,11 +281,12 @@ const startServer = async () => {
     console.log('✅ Database connected successfully');
     
     // Start server
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`🚀 Investment App Backend running on port ${PORT}`);
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
       console.log(`🗄️  Database health: http://localhost:${PORT}/health/db`);
       console.log(`🔗 API base: http://localhost:${PORT}/api`);
+      console.log(`🔌 WebSocket server: ws://localhost:${PORT}`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`📝 Logs: Check ./logs/ directory for detailed logs`);
     });

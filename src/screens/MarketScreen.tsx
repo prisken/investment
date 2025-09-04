@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, RefreshControl } from 'react-native';
 import StockService from '../services/StockService';
 import { StockData, MarketIndex } from '../types/stock';
 
@@ -9,29 +9,70 @@ export default function MarketScreen() {
   const [indices, setIndices] = useState<MarketIndex[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+
+  // Create instance of StockService
+  const stockService = new StockService();
+
+  const loadMarketData = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    
+    setError(null);
+    
+    try {
+      const [stocksData, indicesData] = await Promise.all([
+        stockService.getPopularStocks(selectedMarket),
+        selectedMarket === 'US' 
+          ? stockService.getUSMarketIndices() 
+          : stockService.getHKMarketIndices()
+      ]);
+      
+      setStocks(stocksData);
+      setIndices(indicesData);
+      setLastUpdate(new Date());
+    } catch (error) {
+      console.error('Error loading market data:', error);
+      setError('Failed to load market data. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     loadMarketData();
   }, [selectedMarket]);
 
-  const loadMarketData = async () => {
-    setLoading(true);
-    try {
-      const [stocksData, indicesData] = await Promise.all([
-        StockService.getPopularStocks(selectedMarket),
-        selectedMarket === 'US' 
-          ? StockService.getUSMarketIndices() 
-          : StockService.getHKMarketIndices()
-      ]);
-      
-      setStocks(stocksData);
-      setIndices(indicesData);
-    } catch (error) {
-      console.error('Error loading market data:', error);
-    } finally {
-      setLoading(false);
-    }
+  // Auto-refresh every 30 seconds for real-time updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!loading && !refreshing) {
+        loadMarketData(true);
+      }
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [loading, refreshing, loadMarketData]);
+
+  const handleRefresh = () => {
+    loadMarketData(true);
   };
+
+  const handleMarketChange = (market: 'US' | 'HK') => {
+    setSelectedMarket(market);
+    setSearchQuery(''); // Clear search when changing markets
+  };
+
+  const filteredStocks = stocks.filter(stock => 
+    stock.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    stock.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const renderStockItem = ({ item }: { item: StockData }) => (
     <View style={styles.stockItem}>
@@ -47,6 +88,7 @@ export default function MarketScreen() {
         ]}>
           {item.change >= 0 ? '+' : ''}{item.change.toFixed(2)} ({item.changePercent.toFixed(2)}%)
         </Text>
+        <Text style={styles.volume}>Vol: {item.volume.toLocaleString()}</Text>
       </View>
     </View>
   );
@@ -66,10 +108,11 @@ export default function MarketScreen() {
     </View>
   );
 
-  if (loading) {
+  if (loading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading market data...</Text>
+        <Text style={styles.loadingText}>Loading real-time market data...</Text>
+        <Text style={styles.loadingSubtext}>Connecting to live market feeds...</Text>
       </View>
     );
   }
@@ -77,12 +120,18 @@ export default function MarketScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Market Data</Text>
+        <Text style={styles.title}>Live Market Data</Text>
+        
+        {lastUpdate && (
+          <Text style={styles.lastUpdate}>
+            Last updated: {lastUpdate.toLocaleTimeString()}
+          </Text>
+        )}
         
         <View style={styles.marketSelector}>
           <TouchableOpacity
             style={[styles.marketButton, selectedMarket === 'US' && styles.selectedMarket]}
-            onPress={() => setSelectedMarket('US')}
+            onPress={() => handleMarketChange('US')}
           >
             <Text style={[styles.marketButtonText, selectedMarket === 'US' && styles.selectedMarketText]}>
               🇺🇸 US Market
@@ -90,7 +139,7 @@ export default function MarketScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.marketButton, selectedMarket === 'HK' && styles.selectedMarket]}
-            onPress={() => setSelectedMarket('HK')}
+            onPress={() => handleMarketChange('HK')}
           >
             <Text style={[styles.marketButtonText, selectedMarket === 'HK' && styles.selectedMarketText]}>
               🇭🇰 HK Market
@@ -99,16 +148,26 @@ export default function MarketScreen() {
         </View>
       </View>
 
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => loadMarketData()}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search stocks..."
+          placeholder={`Search ${selectedMarket} stocks...`}
           value={searchQuery}
           onChangeText={setSearchQuery}
+          placeholderTextColor="#666"
         />
       </View>
 
-      <View style={styles.indicesContainer}>
+      <View style={styles.indicesSection}>
         <Text style={styles.sectionTitle}>Market Indices</Text>
         <FlatList
           data={indices}
@@ -116,17 +175,32 @@ export default function MarketScreen() {
           keyExtractor={(item) => item.symbol}
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={styles.indicesList}
+          contentContainerStyle={styles.indicesList}
         />
       </View>
 
-      <View style={styles.stocksContainer}>
+      <View style={styles.stocksSection}>
         <Text style={styles.sectionTitle}>Popular Stocks</Text>
         <FlatList
-          data={stocks}
+          data={filteredStocks}
           renderItem={renderStockItem}
           keyExtractor={(item) => item.symbol}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={['#007AFF']}
+              tintColor="#007AFF"
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                {searchQuery ? 'No stocks found matching your search.' : 'No stocks available.'}
+              </Text>
+            </View>
+          }
         />
       </View>
     </View>
@@ -145,20 +219,60 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
   loadingText: {
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 10,
+  },
+  loadingSubtext: {
+    fontSize: 14,
     color: '#666',
+    textAlign: 'center',
+  },
+  errorContainer: {
+    backgroundColor: '#fff3cd',
+    padding: 15,
+    borderRadius: 10,
+    margin: 20,
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#856404',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  retryButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   header: {
     backgroundColor: '#1e3a8a',
-    padding: 20,
-    paddingTop: 60,
+    paddingTop: 50,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: 'white',
-    marginBottom: 20,
     textAlign: 'center',
+    marginBottom: 20,
+  },
+  lastUpdate: {
+    fontSize: 14,
+    color: 'white',
+    textAlign: 'center',
+    marginBottom: 20,
   },
   marketSelector: {
     flexDirection: 'row',
@@ -166,67 +280,75 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   marketButton: {
-    paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   selectedMarket: {
-    backgroundColor: 'white',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'white',
   },
   marketButtonText: {
     color: 'white',
+    fontSize: 16,
     fontWeight: '600',
   },
   selectedMarketText: {
-    color: '#1e3a8a',
+    fontWeight: 'bold',
   },
   searchContainer: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
   },
   searchInput: {
     backgroundColor: 'white',
-    padding: 15,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
     borderRadius: 10,
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
-  indicesContainer: {
+  indicesSection: {
     paddingHorizontal: 20,
     marginBottom: 20,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1e3a8a',
+    fontWeight: '600',
+    color: '#333',
     marginBottom: 15,
   },
   indicesList: {
-    marginBottom: 10,
+    paddingRight: 20,
   },
   indexItem: {
     backgroundColor: 'white',
     padding: 15,
     borderRadius: 10,
     marginRight: 15,
-    minWidth: 150,
+    minWidth: 120,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   indexName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#1e3a8a',
-    marginBottom: 8,
+    color: '#333',
+    marginBottom: 10,
   },
   indexPrice: {
     alignItems: 'flex-end',
   },
-  stocksContainer: {
+  stocksSection: {
     flex: 1,
     paddingHorizontal: 20,
   },
@@ -239,10 +361,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   stockInfo: {
     flex: 1,
@@ -250,8 +375,8 @@ const styles = StyleSheet.create({
   stockSymbol: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#1e3a8a',
-    marginBottom: 4,
+    color: '#333',
+    marginBottom: 5,
   },
   stockName: {
     fontSize: 14,
@@ -263,11 +388,27 @@ const styles = StyleSheet.create({
   price: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#1e3a8a',
-    marginBottom: 4,
+    color: '#333',
+    marginBottom: 5,
   },
   change: {
     fontSize: 14,
     fontWeight: '600',
+    marginBottom: 5,
+  },
+  volume: {
+    fontSize: 12,
+    color: '#666',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 50,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
 });
