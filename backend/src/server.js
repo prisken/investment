@@ -103,6 +103,7 @@ app.get('/health/db', async (req, res) => {
 // Routes
 app.use('/api/market', require('../routes/market'));
 app.use('/api/market/enhanced', require('../routes/market-enhanced'));
+app.use('/api/data-processing', require('../routes/data-processing'));
 app.use('/api/stocks', require('../routes/stocks'));
 app.use('/api/portfolio', require('../routes/portfolio'));
 app.use('/api/auth', require('../routes/auth'));
@@ -131,6 +132,16 @@ app.get('/', (req, res) => {
       'service-status': '/api/market/enhanced/status',
       'stock-search': '/api/market/enhanced/search?q=:query',
       'popular-stocks': '/api/market/enhanced/popular/:market'
+    },
+    data_processing: {
+      'normalize': '/api/data-processing/normalize',
+      'historical': '/api/data-processing/historical/:symbol',
+      'aggregated': '/api/data-processing/aggregated/:symbol',
+      'stream': '/api/data-processing/stream/:symbol',
+      'validate': '/api/data-processing/validate',
+      'cache-stats': '/api/data-processing/cache/stats',
+      'cache-cleanup': '/api/data-processing/cache/cleanup',
+      'status': '/api/data-processing/status'
     },
     documentation: '/api/docs'
   });
